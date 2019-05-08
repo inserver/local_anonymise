@@ -371,7 +371,8 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
         'logstore_database',
         'repository_youtube', 'repository_dropbox', 'repository_flickr_public', 'repository_boxnet', 'repository_flickr',
         'repository_googledocs', 'repository_merlot', 'repository_picasa', 'repository_s3', 'repository_skydrive',
-        'search_solr'
+        'search_solr',
+        'theme_boost', 'theme_classic',
     );
     foreach ($sensitiveplugins as $pluginname) {
 
@@ -401,7 +402,7 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
         'proxybypass', 'proxyhost', 'proxypassword', 'proxyport', 'proxytype', 'proxyuser', 'recaptchaprivatekey',
         'recaptchapublickey', 'smtphosts', 'smtppass', 'smtpsecure', 'smtpuser', 'supportemail', 'supportname', 'badges_badgesalt',
         'badges_defaultissuername', 'badges_defaultissuercontact', 'cronremotepassword', 'turnitin_account_id', 'turnitin_secret',
-        'turnitin_proxyurl', 'turnitin_proxyport', 'turnitin_proxyuser', 'turnitin_proxypassword'
+        'turnitin_proxyurl', 'turnitin_proxyport', 'turnitin_proxyuser', 'turnitin_proxypassword', 'siteidentifier', 'calendar_exportsalt'
     );
     foreach ($sensitiveconfigvalues as $name) {
         // We update rather than delete because there is code that relies incorrectly on CFG vars being set.
@@ -471,6 +472,31 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
     }
     try {
         $DB->delete_records('user_private_key');
+    } catch (dml_exception $e) {
+        // Ignore.
+    }
+    try {
+        $DB->delete_records('backup_logs');
+    } catch (dml_exception $e) {
+        // Ignore.
+    }
+    try {
+        $DB->delete_records('task_log');
+    } catch (dml_exception $e) {
+        // Ignore.
+    }
+    try {
+        $DB->delete_records('customfield_category');
+    } catch (dml_exception $e) {
+        // Ignore.
+    }
+    try {
+        $DB->delete_records('customfield_field');
+    } catch (dml_exception $e) {
+        // Ignore.
+    }
+    try {
+        $DB->delete_records('customfield_data');
     } catch (dml_exception $e) {
         // Ignore.
     }
@@ -664,8 +690,6 @@ function get_excluded_text_columns() {
         'course_sections' => array('sequence', 'availability'),
         'course_format_options' => array('value'),
         'filter_config' => array('value'),
-        'message' => array('contexturl', 'contexturlname'),
-        'message_read' => array('contexturl', 'contexturlname'),
         'scale' => array('scale'),
         'question_statistics' => array('subquestions', 'positions'),
         'events_handlers' => array('handlerfunction'),
@@ -679,7 +703,6 @@ function get_excluded_text_columns() {
         'badge_issued' => array('uniquehash'),
         'competency' => array('ruleconfig', 'scaleconfiguration'),
         'competency_framework' => array('scaleconfiguration'),
-        'logstore_standard_log' => array('other'),
         'question_multianswer' => array('sequence'),
         'qtype_ddmarker_drops' => array('coords'),
         'data' => array('singletemplate', 'listtemplate', 'listtemplateheader', 'listtemplatefooter', 'addtemplate', 'rsstemplate', 'csstemplate', 'jstemplate', 'asearchtemplate', 'config'),
@@ -707,10 +730,13 @@ function get_varchar_fields_to_update() {
     // I've left role names in db as they are although not 100% sure.
     // I've left tag as they are.
     $varchars = array(
+        'analytics_models' => array('name'),
         'assign' => array('name'),
         'assignment' => array('name'),
         'badge' => array('name', 'issuername', 'issuerurl', 'issuercontact'),
         'badge_backpack' => array('email', 'backpackurl', 'password'),
+        'badge_alignment' => array('targetname', 'targeturl', 'targetframework', 'targetcode'),
+        'badge_endorsement' => array('issuername', 'issuerurl', 'issueremail', 'claimid'),
         'block_community' => array('coursename', 'courseurl', 'imageurl'),
         'block_rss_client' => array('preferredtitle', 'url'),
         'blog_external' => array('name'),
@@ -728,9 +754,12 @@ function get_varchar_fields_to_update() {
         'course' => array('fullname', 'shortname', 'idnumber'),
         'enrol' => array('name', 'password'),
         'enrol_paypal' => array('business', 'receiver_email', 'receiver_id', 'item_name', 'memo', 'tax', 'pending_reason', 'reason_code', 'txn_id', 'parent_txn_id'),
+        'external_tokens' => array('token'),
+        'external_services_functions' => array('functionname'),
         'feedback' => array('name'),
         'feedback_item' => array('name', 'label', 'dependvalue'),
         'feedback_template' => array('name'),
+        'file_conversion' => array('converter'),
         'files' => array('filename', 'author'),
         'forum_posts' => array('subject'),
         'glossary' => array('name'),
@@ -747,6 +776,7 @@ function get_varchar_fields_to_update() {
         'grading_definitions' => array('name'),
         'gradingform_guide_criteria' => array('shortname'),
         'groupings' => array('name', 'idnumber'),
+        'groupings_groups' => array('theme'),
         'groups' => array('name', 'idnumber', 'enrolmentkey'),
         'imscp' => array('name'),
         'label' => array('name'),
@@ -754,8 +784,10 @@ function get_varchar_fields_to_update() {
         'lesson_overrides' => array('password'),
         'lesson_pages' => array('title'),
         'lti' => array('name', 'instructorcustomparameters', 'resourcekey', 'password', 'servicesalt'),
+        'ltiservice_gradebookservices' => array('tag'),
         'lti_tool_proxies' => array('name', 'secret', 'vendorcode', 'name'),
         'lti_types' => array('name', 'tooldomain'),
+        'message_conversations' => array('name', 'itemtype'),
         'messageinbound_datakeys' => array('datakey'),
         'mnet_application' => array('display_name', 'name', 'sso_jump_url', 'sso_land_url', 'xmlrpc_server_url'),
         'mnet_host' => array('ip_address', 'name', 'wwwroot'),
@@ -765,31 +797,41 @@ function get_varchar_fields_to_update() {
         'mnet_sso_access_control' => array('accessctrl', 'username'),
         'mnetservice_enrol_courses' => array('categoryname', 'fullname', 'idnumber', 'rolename', 'shortname'),
         'mnetservice_enrol_enrolments' => array('rolename'),
+        'oauth2_endpoint' => array('name'),
+        'oauth2_issuer' => array('name'),
+        'oauth2_user_field_mapping' => array('externalfield', 'internalfield'),
         'page' => array('name'),
         'portfolio_instance' => array('name'),
         'portfolio_mahara_queue' => array('token'),
         'post' => array('subject'),
         'profiling' => array('url'),
         'qtype_match_subquestions' => array('answertext'),
-        'question' => array('name'),
-        'question_categories' => array('name'),
+        'question' => array('name', 'idnumber'),
+        'question_categories' => array('name', 'stamp'),
         'question_dataset_definitions' => array('name'),
         'quiz' => array('name', 'password', 'subnet'),
         'quiz_overrides' => array('password'),
         'quiz_sections' => array('heading'),
+        'quiz_slot_tags' => array('tagname'),
         'registration_hubs' => array('hubname', 'huburl', 'secret', 'token'),
         'repository_instances' => array('name', 'password', 'username'),
         'resource' => array('name'),
         'resource_old' => array('name'),
+        'role' => array('name'),
+        'role_context_levels' => array('idnumber'),
         'scale' => array('name'),
         'scale_history' => array('name'),
         'scorm' => array('name', 'sha1hash', 'md5hash'),
         'scorm_scoes' => array('identifier', 'manifest', 'organization', 'title'),
+        'search_simpledb_index' => array('docid', 'areaid'),
         'survey' => array('name'),
+        'tool_dataprivacy_category' => array('name'),
+        'tool_dataprivacy_purpose' => array('name'),
         'tool_monitor_rules' => array('name'),
+        'tool_policy_versions' => array('name'),
         'tool_recyclebin_category' => array('fullname', 'shortname'),
         'tool_recyclebin_course' => array('name'),
-        'tool_usertours_tours' => array('name'),
+        'tool_usertours_tours' => array('name', 'pathmatch'),
         'url' => array('name'),
         'user' => array('address', 'aim', 'alternatename', 'city', 'department', 'email', 'firstname', 'firstnamephonetic', 'icq', 'idnumber', 'imagealt', 'institution', 'lastip', 'lastname', 'lastnamephonetic', 'middlename', 'msn', 'password', 'phone1', 'phone2', 'secret', 'skype', 'url', 'yahoo'),
         'user_devices' => array('appid', 'model', 'name', 'platform', 'pushid', 'uuid', 'version'),
