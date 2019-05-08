@@ -306,23 +306,28 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
 
     // List all non-standard plugins in the system.
     $noncoreplugins = array();
-    foreach (\core_component::get_plugin_types() as $plugintype => $plugintypedir) {
+    $pluginman = core_plugin_manager::instance();
+    $plugintypes = $pluginman->get_plugins();
+    foreach ($plugintypes as $plugintype => $allplugins) {
 
-        $allplugins = \core_component::get_plugin_list($plugintype);
         $standardplugins = core_plugin_manager::standard_plugins_list($plugintype);
         if (!is_array($standardplugins)) {
             $standardplugins = array();
         }
-        $plugintypenoncore = array_diff(array_keys($allplugins), $standardplugins);
+        $pluginnames = array_keys($allplugins);
+        $plugintypenoncore = array_diff($pluginnames, $standardplugins);
 
         foreach ($plugintypenoncore as $pluginname) {
             // We don't want to delete local anonymise.
-            if ($plugintype !== 'local' && $pluginname !== 'anonymise') {
-                $name = $plugintype . '_' . $pluginname;
-                $noncoreplugins[$name] = $allplugins[$pluginname];
+            if ($plugintype === 'local' && $pluginname === 'anonymise') {
+                continue;
             }
+            $name = $plugintype . '_' . $pluginname;
+            $noncoreplugins[$name] = $allplugins[$pluginname]->rootdir;
         }
     }
+
+    $alldbtables = $DB->get_tables();
 
     debugging('Uninstalling non-core stuff', DEBUG_DEVELOPER);
 
@@ -338,7 +343,10 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
             $legacyname = $plugintype . '/' . $shortname;
 
             try {
+                // We don't want the notification here.
+                ob_start();
                 uninstall_plugin($plugintype, $shortname);
+                ob_end_clean();
             } catch (moodle_exception $e) {
                 // Catch any possible issue with 3rd party code. Notify it and provide a workaround.
                 debugging('Not possible to complete ' . $pluginname . ' uninstall process, falling back to database tables ' .
@@ -351,14 +359,56 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
                 }
             }
 
-            // Cleanup from core tables regardless of successfull uninstall.
-            $DB->delete_records('config_plugins', array('plugin' => $pluginname));
+            // And just in case, delete all db tables that start with $pluginname and with $shortname.
+            foreach ($alldbtables as $dbtable) {
+                if (strpos($dbtable, $pluginname) === 0 || strpos($dbtable, $shortname) === 0) {
+                    $xmldbtable = new xmldb_table($dbtable);
+                    try {
+                        $dbman->drop_table($xmldbtable);
+                    } catch (moodle_exception $e) {
+                        debugging('Table ' . $dbtable . ' could not be deleted.');
+                    }
+                }
+            }
 
-            // Also delete records stored without the plugintype part of the plugin name.
-            $DB->delete_records('config_plugins', array('plugin' => $shortname));
+            // We want all trace of 3rd party plugins to be deleted from the db.
+            $tableswithcomponentrefs = get_table_references_to_components();
+            foreach ($tableswithcomponentrefs as $tablename => $fields) {
+                foreach ($fields as $field) {
 
-            // And records using type/name syntax.
-            $DB->delete_records('config_plugins', array('plugin' => $legacyname));
+                    // Cleanup from core tables regardless of successfull uninstall.
+                    try {
+                        $DB->delete_records($tablename, array($field => $pluginname));
+                    } catch (moodle_exception $e) {
+                        // The table may not exist for this Moodle version.
+                    }
+
+                    try {
+                        // Also delete records stored without the plugintype part of the plugin name.
+                        $DB->delete_records($tablename, array($field => $shortname));
+                    } catch (moodle_exception $e) {
+                        // The table may not exist for this Moodle version.
+                    }
+
+                    try {
+                        // And records using type/name syntax.
+                        $DB->delete_records($tablename, array($field => $legacyname));
+                    } catch (moodle_exception $e) {
+                        // The table may not exist for this Moodle version.
+                    }
+                }
+            }
+
+
+            // Capablilities.
+            $DB->delete_records_select('capabilities', "name LIKE '" . $legacyname . "%'");
+            $DB->delete_records_select('role_capabilities', "capability LIKE '" . $legacyname . "%'");
+
+            // Tasks & locks.
+            $DB->delete_records_select('lock_db', "resourcekey LIKE '\\" . $pluginname . "%'");
+            $DB->delete_records_select('task_adhoc', "classname LIKE '\\" . $pluginname . "%'");
+            $DB->delete_records_select('task_scheduled', "classname LIKE '\\" . $pluginname . "%'");
+
         }
     }
 
@@ -373,6 +423,7 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
         'repository_googledocs', 'repository_merlot', 'repository_picasa', 'repository_s3', 'repository_skydrive',
         'search_solr',
         'theme_boost', 'theme_classic',
+        'moodlecloudnotifications',
     );
     foreach ($sensitiveplugins as $pluginname) {
 
@@ -393,7 +444,7 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
 
     // Also delete core sensitive records in mdl_config.
     $sensitiveconfigvalues = array(
-        'jabberhost', 'jabberserver', 'jabberusername', 'jabberpassword', 'jabberport',
+        'jabberhost', 'jabberserver', 'jabberusername', 'jabberpassword', 'jabberport', 'auth_instructions', 'sitepolicy',
         'airnotifierurl', 'airnotifierport', 'airnotifiermobileappname', 'airnotifierappname', 'airnotifieraccesskey',
         'BigBlueButtonBNSecuritySalt', 'bigbluebuttonbn_server_url', 'BigBlueButtonBNServerURL', 'bigbluebuttonbn_shared_secret',
         'chat_serverhost', 'chat_serverip', 'chat_serverport', 'curlsecurityallowedport', 'curlsecurityblockedhosts', 'geoip2file',
@@ -402,7 +453,16 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
         'proxybypass', 'proxyhost', 'proxypassword', 'proxyport', 'proxytype', 'proxyuser', 'recaptchaprivatekey',
         'recaptchapublickey', 'smtphosts', 'smtppass', 'smtpsecure', 'smtpuser', 'supportemail', 'supportname', 'badges_badgesalt',
         'badges_defaultissuername', 'badges_defaultissuercontact', 'cronremotepassword', 'turnitin_account_id', 'turnitin_secret',
-        'turnitin_proxyurl', 'turnitin_proxyport', 'turnitin_proxyuser', 'turnitin_proxypassword', 'siteidentifier', 'calendar_exportsalt'
+        'turnitin_proxyurl', 'turnitin_proxyport', 'turnitin_proxyuser', 'turnitin_proxypassword', 'bigbluebuttonbn_userlimit_editable',
+        'bigbluebuttonbn_sendnotifications_enabled', 'mobilecssurl', 'customusermenuitems',
+        'bigbluebuttonbn_recording_default', 'bigbluebuttonbn_recording_editable', 'bigbluebuttonbn_recording_icons_enabled',
+        'bigbluebuttonbn_waitformoderator_default', 'bigbluebuttonbn_waitformoderator_editable','bigbluebuttonbn_waitformoderator_ping_interval',
+        'bigbluebuttonbn_waitformoderator_cache_ttl', 'block_xp_context', 'bigbluebuttonbn_recordingready_enable','converter_plugins_sortorder',
+        'bigbluebuttonbn_importrecordings_from_deleted_enabled', 'bigbluebuttonbn_participant_moderator_default', 'bigbluebuttonbn_recordings_html_default',
+        'bigbluebuttonbn_recordings_html_editable', 'bigbluebuttonbn_recordings_deleted_default', 'bigbluebuttonbn_recordings_deleted_editable',
+        'bigbluebuttonbn_recordings_imported_default', 'bigbluebuttonbn_recordings_imported_editable', 'bigbluebuttonbn_meetingevents_enabled',
+        'bigbluebuttonbn_recordings_preview_default', 'bigbluebuttonbn_recordings_preview_editable', 'siteidentifier', 'calendar_exportsalt',
+        'grade_export_userprofilefields', 'profilingincluded', 'additionalhtmlhead', 'additionalhtmltopofbody', 'additionalhtmlfooter',
     );
     foreach ($sensitiveconfigvalues as $name) {
         // We update rather than delete because there is code that relies incorrectly on CFG vars being set.
@@ -412,7 +472,7 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
         }
     }
 
-    debugging('Deleting other stuff', DEBUG_DEVELOPER);
+    debugging('Deleting log & session & custom fields', DEBUG_DEVELOPER);
 
     // Other records.
     $DB->delete_records('user_preferences', array('name' => 'login_lockout_secret'));
@@ -500,6 +560,22 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
     } catch (dml_exception $e) {
         // Ignore.
     }
+    try {
+        $DB->delete_records('user_info_data');
+    } catch (dml_exception $e) {
+        // Ignore.
+    }
+    try {
+        $DB->delete_records('user_info_category');
+    } catch (dml_exception $e) {
+        // Ignore.
+    }
+    try {
+        $DB->delete_records('user_info_field');
+    } catch (dml_exception $e) {
+        // Ignore.
+    }
+
 
     debugging('Getting rid of all ips', DEBUG_DEVELOPER);
 
@@ -560,6 +636,28 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
         // np, ignoring logstore_standard if not installed (although not worth the dataset if uninstalled....).
     }
 
+    debugging('Setting the default theme in Moodle', DEBUG_DEVELOPER);
+
+    // Reset calendartypes and themes to the default ones.
+    set_config('theme', 'boost');
+    set_config('themelist', '');
+    set_config('calendartype', 'gregorian');
+
+    try {
+        $DB->execute("UPDATE {groupings_groups} SET theme = ''");
+    } catch (moodle_exception $e) {
+        // The field may not exist for this Moodle version.
+    }
+    try {
+        $DB->execute("UPDATE {cohort} SET theme = ''");
+    } catch (moodle_exception $e) {
+        // The field may not exist for this Moodle version.
+    }
+    $DB->execute("UPDATE {mnet_host} SET theme = ''");
+    $DB->execute("UPDATE {course} SET theme = '', calendartype = ''");
+    $DB->execute("UPDATE {course_categories} SET theme = ''");
+    $DB->execute("UPDATE {user} SET theme = '', calendartype = ''");
+
     // We don't want to anonymise these database table columns because the system would not work as expected
     // without them or they contain numeric or they contain data that do not need to be anonymised.
     $excludedcolumns = get_excluded_text_columns();
@@ -571,7 +669,10 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
     // List of activities, we skip activity names anonymisation.
     $activitynamefields = get_activity_name_fields();
 
+    debugging('Iterating through all db tables clearing varchar and text fields.', DEBUG_DEVELOPER);
+
     // Iterate through all system tables and set random values to text and varchar fields.
+    // No cache to refresh the list as we deleted some tables in this script.
     $tables = $DB->get_tables(false);
     foreach ($tables as $tablename) {
 
@@ -591,7 +692,7 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
             // Text fields, all of them but the excluded ones.
             if (($DB->get_dbfamily() === 'postgres' && $column->type === 'text') ||
                 ($DB->get_dbfamily() === 'mysql' && $column->type === 'longtext')) {
-                $toupdate[$columnname] = $columnname;
+                $toupdate[$columnname] = (object)['vartype' => $column->type];
             }
 
             // All listed varchars.
@@ -600,14 +701,13 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
                 // Skip activity names and user password if required.
                 if (($anonymiseactivities || empty($activitynamefields[$tablename]) || empty($activitynamefields[$tablename][$columnname])) &&
                         ($anonymisepassword || $tablename !== 'user' || $columnname !== 'password')) {
-                    $toupdate[$columnname] = $columnname;
+                    $toupdate[$columnname] = (object)['vartype' => $column->type, 'max' => $column->max_length];
                 }
             }
         }
 
         // Update all table records if there is any text column that should be cleaned.
         if (!empty($toupdate)) {
-            debugging('Anonymising ' . $tablename . ' records', DEBUG_DEVELOPER);
             anonymise_table_records($tablename, $toupdate);
         }
     }
@@ -618,35 +718,29 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
 function anonymise_table_records($tablename, $columns) {
     global $DB;
 
-    try {
-        $records = $DB->get_recordset($tablename);
-    } catch (dml_exception $ex) {
-        mtrace('Skipping ' . $tablename . ' table anonymisation process as it does not exist in this Moodle site');
-        return;
-    }
+    foreach ($columns as $column => $colinfo) {
 
-    foreach ($records as $record) {
-        $updaterecord = false;
-
-        // Set each of the text columns value to a random string with the same length.
-        foreach ($columns as $columnname) {
-
-            // Skip unexisting columns.
-            if (!isset($record->{$columnname})) {
-                continue;
-            }
-
-            $len = \core_text::strlen($record->{$columnname});
-            if ($len) {
-                $updaterecord = true;
-                $record->{$columnname} = assign_random_string($len);
-            }
+        // No random support in the DML API.
+        if ($DB->get_dbfamily() === 'postgres') {
+            $randstr = '(RANDOM() * 10000000)::' . $colinfo->vartype;
+        } else if ($DB->get_dbfamily() === 'mysql') {
+            $randstr = 'CAST(RAND() * 10000000 AS ' . $colinfo->vartype . ')';
+        } else if ($DB->get_dbfamily() === 'mssql') {
+            $randstr = 'CAST(RAND() * 10000000 AS ' . $colinfo->vartype . ')';
+        } else if ($DB->get_dbfamily() === 'oracle') {
+            $randstr = 'CAST(DBMS_RANDOM.VALUE * 10000000 AS ' . $colinfo->vartype . ')';
         }
-        if ($updaterecord) {
-            $DB->update_record($tablename, $record);
+
+        if (!empty($colinfo->max)) {
+            $randstr = $DB->sql_substr($randstr, 0, $colinfo->max);
         }
+        $sql = "UPDATE {" . $tablename . "} SET " . $column . " = CASE
+            WHEN " . $column . " IS NULL THEN NULL
+            WHEN " . $DB->sql_length($column) . " = 0 THEN '0'
+            ELSE " . $randstr . "
+        END";
+        $DB->execute($sql);
     }
-    $records->close();
 }
 
 function assign_if_not_null(&$object, $field, $newvalue) {
@@ -684,6 +778,7 @@ function assign_random_id() {
 
 function get_excluded_text_columns() {
     return array(
+        'analytics_models' => array('indicators'),
         'config' => array('value'),
         'config_plugins' => array('value'),
         'course_modules' => array('availability'),
@@ -703,6 +798,7 @@ function get_excluded_text_columns() {
         'badge_issued' => array('uniquehash'),
         'competency' => array('ruleconfig', 'scaleconfiguration'),
         'competency_framework' => array('scaleconfiguration'),
+        'competency_evidence' => array('descidentifier', 'desccomponent'),
         'question_multianswer' => array('sequence'),
         'qtype_ddmarker_drops' => array('coords'),
         'data' => array('singletemplate', 'listtemplate', 'listtemplateheader', 'listtemplatefooter', 'addtemplate', 'rsstemplate', 'csstemplate', 'jstemplate', 'asearchtemplate', 'config'),
@@ -727,8 +823,6 @@ function get_excluded_text_columns() {
 
 function get_varchar_fields_to_update() {
 
-    // I've left role names in db as they are although not 100% sure.
-    // I've left tag as they are.
     $varchars = array(
         'analytics_models' => array('name'),
         'assign' => array('name'),
@@ -738,6 +832,7 @@ function get_varchar_fields_to_update() {
         'badge_alignment' => array('targetname', 'targeturl', 'targetframework', 'targetcode'),
         'badge_endorsement' => array('issuername', 'issuerurl', 'issueremail', 'claimid'),
         'block_community' => array('coursename', 'courseurl', 'imageurl'),
+        'block_instances' => array('blockname'),
         'block_rss_client' => array('preferredtitle', 'url'),
         'blog_external' => array('name'),
         'book' => array('name'),
@@ -776,7 +871,6 @@ function get_varchar_fields_to_update() {
         'grading_definitions' => array('name'),
         'gradingform_guide_criteria' => array('shortname'),
         'groupings' => array('name', 'idnumber'),
-        'groupings_groups' => array('theme'),
         'groups' => array('name', 'idnumber', 'enrolmentkey'),
         'imscp' => array('name'),
         'label' => array('name'),
@@ -817,14 +911,16 @@ function get_varchar_fields_to_update() {
         'repository_instances' => array('name', 'password', 'username'),
         'resource' => array('name'),
         'resource_old' => array('name'),
-        'role' => array('name'),
+        'role' => array('name', 'shortname'),
         'role_context_levels' => array('idnumber'),
+        'role_names' => array('name'),
         'scale' => array('name'),
         'scale_history' => array('name'),
         'scorm' => array('name', 'sha1hash', 'md5hash'),
         'scorm_scoes' => array('identifier', 'manifest', 'organization', 'title'),
         'search_simpledb_index' => array('docid', 'areaid'),
         'survey' => array('name'),
+        "tag" => array('name', 'rawname'),
         'tool_dataprivacy_category' => array('name'),
         'tool_dataprivacy_purpose' => array('name'),
         'tool_monitor_rules' => array('name'),
@@ -836,6 +932,7 @@ function get_varchar_fields_to_update() {
         'user' => array('address', 'aim', 'alternatename', 'city', 'department', 'email', 'firstname', 'firstnamephonetic', 'icq', 'idnumber', 'imagealt', 'institution', 'lastip', 'lastname', 'lastnamephonetic', 'middlename', 'msn', 'password', 'phone1', 'phone2', 'secret', 'skype', 'url', 'yahoo'),
         'user_devices' => array('appid', 'model', 'name', 'platform', 'pushid', 'uuid', 'version'),
         'user_info_category' => array('name'),
+        'user_info_field' => array('shortname'),
         'wiki' => array('firstpagetitle', 'name'),
         'wiki_links' => array('tomissingpage'),
         'wiki_locks' => array('sectionname'),
@@ -886,4 +983,44 @@ function get_activity_name_fields() {
 
     return $activities;
 
+}
+
+function get_table_references_to_components() {
+    return [
+        'capabilities' => ['component'],
+        'cohort' => ['component'],
+        'comments' => ['component'],
+        'config_plugins' => ['plugin'],
+        'enrol' => ['enrol'],
+        'events_handler' => ['component'],
+        'external_functions' => ['component'],
+        'external_services' => ['component'],
+        'favourite' => ['component'],
+        'files' => ['component'],
+        'filter_active' => ['filter'],
+        'filter_config' => ['filter'],
+        'grade_grades_history' => ['source'],
+        'grade_items' => ['itemmodule'],
+        'grade_items_history' => ['itemmodule'],
+        'grading_areas' => ['component'],
+        'group_members' => ['component'],
+        'log_display' => ['module'],
+        'logstore_standard_log' => ['component'],
+        'message' => ['component'],
+        'message_conversations' => ['component'],
+        'message_providers' => ['component'],
+        'message_read' => ['component'],
+        'messageinbound_handlers' => ['component'],
+        'mnet_rpc' => ['component'],
+        'notifications' => ['component'],
+        'question_usages' => ['component'],
+        'rating' => ['component'],
+        'repository' => ['type'],
+        'role_assignments' => ['component'],
+        'tag_area' => ['component'],
+        'tag_coll' => ['component'],
+        'tag_instance' => ['component'],
+        'task_adhoc' => ['component'],
+        'task_scheduled' => ['component'],
+    ];
 }

@@ -95,13 +95,9 @@ if ($anonymise) {
     }
 
     echo html_writer::tag('p', get_string('done', 'local_anonymise'), array('style' => 'margin-top: 20px;'));
-    $purgeprompt = get_string('purgeprompt', 'local_anonymise');
-    $purgeprompt .= ' ';
-    $params = array('sesskey' => sesskey(), 'confirm' => '1', 'returnurl' => '/');
-    $url = new moodle_url('/admin/purgecaches.php', $params);
-    $purgeprompt .= html_writer::link($url, get_string('purgelink', 'local_anonymise'));
-    $purgeprompt .= '.';
-    echo html_writer::tag('p', $purgeprompt, array('style' => 'margin-top: 20px;'));
+
+    $home = new \moodle_url('/');
+    echo html_writer::tag('a', get_string('continue'), array('href' => $home->out(false), 'class' => 'btn btn-primary'));
 
 } else {
 
