@@ -790,6 +790,7 @@ function get_excluded_text_columns() {
         'events_handlers' => array('handlerfunction'),
         'grade_items' => array('calculation'),
         'grade_items_history' => array('calculation'),
+        'grade_settings' => array('value'),
         'tag_correlation' => array('correlatedtags'),
         'groupings' => array('configdata'),
         'files_reference' => array('reference'),
