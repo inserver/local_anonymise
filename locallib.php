@@ -36,6 +36,7 @@ require_once($CFG->libdir . '/formslib.php');
 require_once($CFG->dirroot . '/course/lib.php');
 require_once($CFG->libdir . '/adminlib.php');
 require_once($CFG->libdir . '/filelib.php');
+require_once($CFG->libdir . '/xmldb/xmldb_file.php');
 
 /**
  * Action form for the Anonmise page.
@@ -287,7 +288,10 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
     make_writable_directory($defaultmodelsdir);
     set_config('modeloutputdir', $defaultmodelsdir, 'analytics');
 
+    $dbman = $DB->get_manager();
+
     // List all non-standard plugins in the system.
+    $coretables = array();
     $noncoreplugins = array();
     $pluginman = core_plugin_manager::instance();
     $plugintypes = $pluginman->get_plugins();
@@ -308,16 +312,33 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
             $name = $plugintype . '_' . $pluginname;
             $noncoreplugins[$name] = $allplugins[$pluginname]->rootdir;
         }
+
+        foreach ($pluginnames as $pluginname) {
+            $dbfile = $allplugins[$pluginname]->rootdir . '/db/install.xml';
+            if (file_exists($dbfile)) {
+                $xmldb = new xmldb_file($dbfile);
+                $xmldb->loadXMLStructure();
+                // var_dump($xmldb->getStructure());
+                foreach ($xmldb->getStructure()->getTables() as $table) {
+                    $coretables[$table->getName()] = $table->getName();
+                }
+            }
+        }
     }
 
+    $xmldb = new xmldb_file($CFG->dirroot . '/lib/db/install.xml');
+    $xmldb->loadXMLStructure();
+    foreach ($xmldb->getStructure()->getTables() as $table) {
+        $coretables[$table->getName()] = $table->getName();
+    }
     $alldbtables = $DB->get_tables();
+
+    $noncoretables = array_diff_key($alldbtables, $coretables);
 
     debugging('Uninstalling non-core stuff', DEBUG_DEVELOPER);
 
     // Delete all non-core mdl_config_plugins records and tables.
     if ($noncoreplugins) {
-
-        $dbman = $DB->get_manager();
 
         foreach ($noncoreplugins as $pluginname => $path) {
 
@@ -343,8 +364,8 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
             }
 
             // And just in case, delete all db tables that start with $pluginname and with $shortname.
-            foreach ($alldbtables as $dbtable) {
-                if (strpos($dbtable, $pluginname) === 0 || strpos($dbtable, $shortname) === 0) {
+            foreach ($noncoretables as $dbtable) {
+                if ($dbman->table_exists($dbtable)) {
                     $xmldbtable = new xmldb_table($dbtable);
                     try {
                         $dbman->drop_table($xmldbtable);
