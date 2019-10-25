@@ -185,27 +185,6 @@ function anonymise_courses($site = false) {
     $sections->close();
 }
 
-function anonymise_files() {
-    global $DB;
-
-    debugging('Anonymising files');
-
-    $files = $DB->get_recordset('files');
-    foreach ($files as $file) {
-
-        assign_if_not_null($file, 'author', 'user ' . $file->userid);
-        assign_if_not_null($file, 'source', '');
-        if ($file->filename !== '.') {
-            assign_if_not_null($file, 'filename', assign_random_id());
-        }
-        if ($file->filepath !== '/') {
-            assign_if_not_null($file, 'filepath', '/' . assign_random_id() . '/');
-        }
-        $DB->update_record('files', $file);
-    }
-    $files->close();
-}
-
 function anonymise_users($password = false, $admin = false) {
 
     global $CFG, $DB;
@@ -302,7 +281,11 @@ function anonymise_users($password = false, $admin = false) {
  * @return void
  */
 function anonymise_others($anonymiseactivities, $anonymisepassword) {
-    global $DB;
+    global $DB, $CFG;
+
+    $defaultmodelsdir = $CFG->dataroot . '/models';
+    make_writable_directory($defaultmodelsdir);
+    set_config('modeloutputdir', $defaultmodelsdir, 'analytics');
 
     // List all non-standard plugins in the system.
     $noncoreplugins = array();
@@ -636,6 +619,10 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
         // np, ignoring logstore_standard if not installed (although not worth the dataset if uninstalled....).
     }
 
+    // Anonymise file names and file paths when needed.
+    $DB->execute("UPDATE {files} SET filename = " . $DB->sql_concat('id', 'contenthash') . " WHERE filename != '.'");
+    $DB->execute("UPDATE {files} SET filepath = " . $DB->sql_concat("'/'", 'pathnamehash', "'/'") . " WHERE filepath != '/'");
+
     debugging('Setting the default theme in Moodle', DEBUG_DEVELOPER);
 
     // Reset calendartypes and themes to the default ones.
@@ -731,8 +718,8 @@ function anonymise_table_records($tablename, $columns) {
             $randstr = 'CAST(DBMS_RANDOM.VALUE * 10000000 AS ' . $colinfo->vartype . ')';
         }
 
-        if (!empty($colinfo->max)) {
-            $randstr = $DB->sql_substr($randstr, 0, $colinfo->max);
+        if (!empty($colinfo->max) && intval($colinfo->max) > 0) {
+            $randstr = $DB->sql_substr($randstr, 0, intval($colinfo->max));
         }
         $sql = "UPDATE {" . $tablename . "} SET " . $column . " = CASE
             WHEN " . $column . " IS NULL THEN NULL
@@ -856,7 +843,7 @@ function get_varchar_fields_to_update() {
         'feedback_item' => array('name', 'label', 'dependvalue'),
         'feedback_template' => array('name'),
         'file_conversion' => array('converter'),
-        'files' => array('filename', 'author'),
+        'files' => array('author', 'source'),
         'forum_posts' => array('subject'),
         'glossary' => array('name'),
         'glossary_entries' => array('concept'),

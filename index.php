@@ -57,7 +57,6 @@ if ($anonymise) {
     $activities = optional_param('activities',  false,  PARAM_BOOL);
     $categories = optional_param('categories',  false,  PARAM_BOOL);
     $courses = optional_param('courses',  false,  PARAM_BOOL);
-    $files = optional_param('files', false, PARAM_BOOL);
     $users = optional_param('users',  false,  PARAM_BOOL);
     $password = optional_param('password',  false,  PARAM_BOOL);
     $admin = optional_param('admin',  false,  PARAM_BOOL);
@@ -77,11 +76,6 @@ if ($anonymise) {
     if ($courses) {
         echo $OUTPUT->heading(get_string('courses', 'local_anonymise'), 3);
         anonymise_courses($site);
-    }
-
-    if ($files) {
-        echo $OUTPUT->heading(get_string('files', 'local_anonymise'), 3);
-        anonymise_files();
     }
 
     if ($users) {

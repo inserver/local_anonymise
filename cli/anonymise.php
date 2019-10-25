@@ -36,7 +36,6 @@ list($options, $unrecognized) = cli_get_params(
         'categories' => false,
         'courses' => false,
         'site' => false,
-        'files' => false,
         'users' => false,
         'password' => false,
         'admin' => false,
@@ -61,7 +60,6 @@ Options:
 --categories        Anonymise categories
 --courses           Anonymise courses
 --site              Anonymise site home course
---files             Anonymise files
 --users             Anonymise users
 --password          Reset user passwords
 --admin             Anonymise default administrator (except username and password)
@@ -113,11 +111,6 @@ if ($options['categories']) {
 if ($options['courses']) {
     echo $OUTPUT->heading(get_string('courses', 'local_anonymise'), 3);
     anonymise_courses($options['site']);
-}
-
-if ($options['files']) {
-    echo $OUTPUT->heading(get_string('files', 'local_anonymise'), 3);
-    anonymise_files();
 }
 
 if ($options['users']) {
