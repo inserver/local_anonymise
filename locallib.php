@@ -479,9 +479,11 @@ function anonymise_others($anonymiseactivities, $anonymisepassword) {
     // Just in case, better to be aggressive.
     $DB->execute("DELETE FROM {config} WHERE name LIKE '%secret%'");
     $DB->execute("DELETE FROM {config} WHERE name LIKE '%password%'");
+    $DB->execute("DELETE FROM {config} WHERE name LIKE '%private%'");
     $DB->execute("DELETE FROM {config} WHERE name LIKE '%pwd%'");
     $DB->execute("DELETE FROM {config_plugins} WHERE name LIKE '%secret%'");
     $DB->execute("DELETE FROM {config_plugins} WHERE name LIKE '%password%'");
+    $DB->execute("DELETE FROM {config_plugins} WHERE name LIKE '%private%'");
     $DB->execute("DELETE FROM {config_plugins} WHERE name LIKE '%pwd%'");
 
     debugging('Deleting log & session & custom fields', DEBUG_DEVELOPER);
