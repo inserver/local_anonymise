@@ -61,6 +61,7 @@ Options:
 --courses           Anonymise courses
 --site              Anonymise site home course
 --users             Anonymise users
+--nousername        Not anonymise username: --users --nousername
 --password          Reset user passwords
 --admin             Anonymise default administrator (except username and password)
 --others            Anonymise all other potentially sensitive contents
@@ -114,8 +115,13 @@ if ($options['courses']) {
 }
 
 if ($options['users']) {
-    echo $OUTPUT->heading(get_string('users', 'local_anonymise'), 3);
-    anonymise_users($options['password'], $options['admin']);
+    if ($options['nousername']) {
+        echo $OUTPUT->heading(get_string('usersnousernames', 'local_anonymise'), 3);
+        anonymise_users($options['password'], $options['admin'], $options['nousername']);
+    } else {
+        echo $OUTPUT->heading(get_string('users', 'local_anonymise'), 3);
+        anonymise_users($options['password'], $options['admin']);
+    }
 }
 
 if ($options['others']) {

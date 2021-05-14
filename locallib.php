@@ -71,6 +71,9 @@ class local_anonymise_form extends moodleform {
         $mform->addElement('checkbox', 'users', get_string('users', 'local_anonymise'));
         $mform->setType('users', PARAM_BOOL);
 
+        $mform->addElement('checkbox', 'nousernames', get_string('usersnousernames', 'local_anonymise'));
+        $mform->setType('nousernames', PARAM_BOOL);
+
         $mform->addElement('checkbox', 'password', get_string('resetpasswords', 'local_anonymise'));
         $mform->setType('password', PARAM_BOOL);
         $mform->setDefault('password', 'checked');
@@ -186,7 +189,7 @@ function anonymise_courses($site = false) {
     $sections->close();
 }
 
-function anonymise_users($password = false, $admin = false) {
+function anonymise_users($password = false, $admin = false, $nousername = false) {
 
     global $CFG, $DB;
 
@@ -228,7 +231,7 @@ function anonymise_users($password = false, $admin = false) {
         }
 
         $randomid = assign_random_id();
-        if ($user->username != 'admin') {
+        if ($user->username != 'admin' && $nousername === false) {
             $user->username = $userstring . $randomid;
         }
         assign_if_not_null($user, 'idnumber', $randomid);
