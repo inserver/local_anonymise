@@ -37,6 +37,7 @@ list($options, $unrecognized) = cli_get_params(
         'courses' => false,
         'site' => false,
         'users' => false,
+        'nousername' => false,
         'password' => false,
         'admin' => false,
         'others' => false,
